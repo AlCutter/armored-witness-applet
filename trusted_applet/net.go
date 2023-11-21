@@ -300,6 +300,12 @@ func rx(buf []byte) {
 
 	copy(pkt.LinkHeader().Push(len(hdr)), hdr)
 
+	if proto == header.IPv4ProtocolNumber {
+		n := header.IPv4(payload)
+		t := header.TCP(n.Payload())
+		log.Printf("RX: %v:%v -> %v:%v", n.SourceAddress(), t.SourcePort(), n.DestinationAddress(), t.DestinationPort())
+	}
+
 	iface.Link.InjectInbound(proto, pkt)
 }
 
@@ -320,6 +326,12 @@ func tx() (buf []byte) {
 
 	for _, v := range pkt.AsSlices() {
 		buf = append(buf, v...)
+	}
+
+	if pkt.NetworkProtocolNumber == header.IPv4ProtocolNumber || pkt.NetworkProtocolNumber == header.IPv6ProtocolNumber {
+		n := header.IPv4(buf[14:])
+		t := header.TCP(n.Payload())
+		log.Printf("TX: %v:%v -> %v:%v", n.SourceAddress(), t.SourcePort(), n.DestinationAddress(), t.DestinationPort())
 	}
 
 	return
