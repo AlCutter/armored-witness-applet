@@ -300,10 +300,8 @@ func rx(buf []byte) {
 
 	copy(pkt.LinkHeader().Push(len(hdr)), hdr)
 
-	if proto == header.IPv4ProtocolNumber {
-		n := header.IPv4(payload)
-		t := header.TCP(n.Payload())
-		log.Printf("RX: %v:%v -> %v:%v", n.SourceAddress(), t.SourcePort(), n.DestinationAddress(), t.DestinationPort())
+	if pd := packetDebug(proto, payload); pd != "" {
+		log.Printf("RX: %s", pd)
 	}
 
 	iface.Link.InjectInbound(proto, pkt)
@@ -328,13 +326,54 @@ func tx() (buf []byte) {
 		buf = append(buf, v...)
 	}
 
-	if pkt.NetworkProtocolNumber == header.IPv4ProtocolNumber || pkt.NetworkProtocolNumber == header.IPv6ProtocolNumber {
-		n := header.IPv4(buf[14:])
-		t := header.TCP(n.Payload())
-		log.Printf("TX: %v:%v -> %v:%v", n.SourceAddress(), t.SourcePort(), n.DestinationAddress(), t.DestinationPort())
+	if pd := packetDebug(pkt.NetworkProtocolNumber, buf[14:]); pd != "" {
+		log.Printf("TX: %s", pd)
 	}
 
 	return
+}
+
+func packetDebug(proto tcpip.NetworkProtocolNumber, buf []byte) string {
+	var src, dst, info string
+	var payloadProto tcpip.TransportProtocolNumber
+	var payload []byte
+	switch proto {
+	case header.IPv4ProtocolNumber:
+		n := header.IPv4(buf)
+		src = fmt.Sprintf("%v", n.SourceAddress())
+		dst = fmt.Sprintf("%v", n.DestinationAddress())
+		payload = n.Payload()
+		payloadProto = n.TransportProtocol()
+	case header.IPv6ProtocolNumber:
+		n := header.IPv6(buf)
+		src = fmt.Sprintf("%v", n.SourceAddress())
+		dst = fmt.Sprintf("%v", n.DestinationAddress())
+		payload = n.Payload()
+		payloadProto = n.TransportProtocol()
+	default:
+		return ""
+	}
+	if len(payload) > 0 {
+		switch payloadProto {
+		case header.TCPProtocolNumber:
+			t := header.TCP(payload)
+			src += fmt.Sprintf(":%d", t.SourcePort())
+			dst += fmt.Sprintf(":%d", t.DestinationPort())
+			info = fmt.Sprintf("TCP (%d) [flags %s]", len(t.Payload()), header.TCPFlags(t.Flags()))
+		case header.UDPProtocolNumber:
+			u := header.UDP(payload)
+			src += fmt.Sprintf(":%d", u.SourcePort())
+			dst += fmt.Sprintf(":%d", u.DestinationPort())
+			info = fmt.Sprintf("UDP (%d)", u.Length())
+		case header.ICMPv4ProtocolNumber:
+			i := header.ICMPv4(payload)
+			info = fmt.Sprintf("ICMPv4 (%d) type %d", len(i.Payload()), i.Type())
+		case header.ICMPv6ProtocolNumber:
+			i := header.ICMPv6(payload)
+			info = fmt.Sprintf("ICMPv6 (%d) type %d", len(i.Payload()), i.Type())
+		}
+	}
+	return fmt.Sprintf("RX: %v -> %v - %s", src, dst, info)
 }
 
 type txNotification struct{}
